@@ -101,12 +101,14 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 
 | Topic                                    | Type                   |
 | ---------------------------------------- | ---------------------- |
+| `/system/vehicle/usv/task2/pipeline_buoys` | `rx_msgs/PipelineBuoys` |
 | `/system/vehicle/usv/task3/docking`      | `rx_msgs/Docking`      |
 | `/system/vehicle/usv/task3/firefighting` | `rx_msgs/Firefighting` |
 | `/system/vehicle/usv/task3/delivery`     | `rx_msgs/ResourceDelivery` |
 | `/system/vehicle/usv/task4/incident_ack` | `rx_msgs/IncidentAck`  |
 | `/system/vehicle/usv/task4/readiness`    | `rx_msgs/ReadinessReport` |
 
+- **Task 2 buoy feed:** the USV is the only vehicle that publishes `PipelineBuoys`. Publish the first buoy as soon as it is found (`buoy_b_valid: false`), then again on every change, repeated about 1 Hz until the run ends, copied `course_id`, and QoS reliable + transient_local depth 1 (same as `/system/mission/course`). This is a team extension: it is not relayed to RoboCommand, but the GCS forwards it to the UUV domain.
 - **Subscribes** to `/system/vehicle/uav/task1/safe_passage` for mission planning.
 - `Docking.bay_id` = bay (1–3) of the safe (GREEN) bay; docking also signals readiness for tasking — the window light activates after the GCS forwards the report.
 - `Firefighting.window_id` = the window whose light changed RED → GREEN after the water delivery.
@@ -121,6 +123,7 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 | `/system/vehicle/uuv/task4/incident_ack` | `rx_msgs/IncidentAck`  |
 | `/system/vehicle/uuv/task4/readiness`    | `rx_msgs/ReadinessReport` |
 
+- **Subscribes** to `/system/vehicle/usv/task2/pipeline_buoys` (`rx_msgs/PipelineBuoys`) for the Task 2 buoy positions: drive on the surface to the active (GREEN) buoy, using the `buoy_a`–`buoy_b` line as the pipe direction, and receive the newest observation before diving (no radio underwater). Ignore observations tagged with another `course_id`.
 - `PipelineSurvey` = active (GREEN) buoy position plus segment statuses ordered from the active buoy end. Send it once, after the survey and (Advanced tier) the repair — typically when surfaced, since the UUV cannot transmit while submerged.
 - **Store-and-forward:** no continuous communication while submerged; when surfaced and connected, synchronize `/system/...` topics, wait for the ACK, then dive again.
 - Use `Course.pinger_freq_hz` for acoustic homing.
@@ -231,6 +234,17 @@ rx_msgs/msg/PipelineSurvey
     rx_msgs/LatLng active_buoy_position
     uint8[] segments               # PipelineSegmentStatus constants
 
+rx_msgs/msg/PipelineBuoys          # team extension; USV publishes, UUV subscribes
+    std_msgs/Header header         # stamp = time of the newest observation (UTC)
+    string course_id               # Course.course_id this observation belongs to
+    uint8 source_vehicle           # VehicleType constants; TYPE_USV only
+    uint32 seq                     # increases whenever the content changes
+    rx_msgs/LatLng buoy_a          # one pipeline buoy (WGS-84)
+    rx_msgs/LatLng buoy_b          # the other pipeline buoy
+    bool buoy_b_valid              # false while only one buoy has been found (in buoy_a)
+    uint8 active_buoy              # ACTIVE_UNKNOWN / ACTIVE_A / ACTIVE_B
+    float32 uncertainty_m          # horizontal position error, metres; 0 = unknown
+
 rx_msgs/msg/ResourceDelivery
     std_msgs/Header header
     uint8 task                     # RxTask constants
@@ -272,6 +286,8 @@ BeaconState:            BEACON_STATE_UNKNOWN=0  BEACON_STATE_OFF=1  BEACON_STATE
                         BEACON_STATE_FLASHING_GREEN=3  BEACON_STATE_FLASHING_BLUE=4  BEACON_STATE_STEADY_BLUE=5
 
 PipelineSegmentStatus:  PIPELINE_SEGMENT_UNKNOWN=0  PIPELINE_SEGMENT_INTACT=1  PIPELINE_SEGMENT_DAMAGED=2
+
+PipelineBuoys:          ACTIVE_UNKNOWN=0  ACTIVE_A=1  ACTIVE_B=2
 
 FlightPhase:            FLIGHT_PHASE_UNKNOWN=0  FLIGHT_PHASE_GROUNDED=1  FLIGHT_PHASE_AIRBORNE=2
 

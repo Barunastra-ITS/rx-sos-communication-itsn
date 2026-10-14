@@ -18,6 +18,7 @@ set(msgs
   msg/IncidentAck.msg
   msg/LatLng.msg
   msg/MissionStatus.msg
+  msg/PipelineBuoys.msg
   msg/PipelineSegmentStatus.msg
   msg/PipelineSurvey.msg
   msg/ReadinessReport.msg
