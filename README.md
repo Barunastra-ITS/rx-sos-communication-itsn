@@ -60,8 +60,8 @@ The GCS publishes course configuration and commands to the vehicles and collects
 | `/system/mission/command` | subscribe | `rx_msgs/Command`  |
 | `/system/mission/status` | publish   | `rx_msgs/MissionStatus` |
 
-- `Course` is published once before the run: `course_id`, `pinger_freq_hz` (UUV homing), the course boundary (closed polygon), and the `uav_geofence` (closed polygon within the boundary).
-- `Command` targets a vehicle via `target_vehicle` (`TYPE_UNKNOWN` = all vehicles). `CMD_RUN_START` carries `run_id`.
+- `Course` is published once before the run: `course_id`, `pinger_freq_hz` (UUV homing), the course boundary (closed polygon), and the `uav_geofence` (closed polygon within the boundary). It uses the plain default QoS (reliable, volatile, keep_last 10) like every other `/system/...` topic.
+- `Command` targets a vehicle via `target_vehicle` (`TYPE_UNKNOWN` = all vehicles). `CMD_RUN_START` carries `run_id`. The GCS originates most orders; the USV also publishes `Command` itself (`CMD_MISSION_DONE`, see §4.2), so this topic flows in both directions through the DDS Router.
 - **Position-hold until the run start:** after switching to autonomous mode, no vehicle begins the run until `CMD_RUN_START` is received.
 
 ### 3.2 Heartbeat
@@ -108,7 +108,8 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 | `/system/vehicle/usv/task4/incident_ack` | `rx_msgs/IncidentAck`  |
 | `/system/vehicle/usv/task4/readiness`    | `rx_msgs/ReadinessReport` |
 
-- **Task 2 buoy feed:** the USV is the only vehicle that publishes `PipelineBuoys`. Publish the first buoy as soon as it is found (`buoy_b_valid: false`), then again on every change, repeated about 1 Hz until the run ends, copied `course_id`, and QoS reliable + transient_local depth 1 (same as `/system/mission/course`). This is a team extension: it is not relayed to RoboCommand, but the GCS forwards it to the UUV domain.
+- **Task 2 buoy feed:** the USV is the only vehicle that publishes `PipelineBuoys`. Publish the first buoy as soon as it is found (`buoy_b_valid: false`), then again on every change, repeated about 1 Hz until the run ends, copied `course_id`, with the plain default QoS (reliable, volatile, keep_last 10 — the ~1 Hz repeat is what reaches a late-joining UUV). This is a team extension: it is not relayed to RoboCommand, but the GCS forwards it to the UUV domain.
+- **Mission done (CMD_MISSION_DONE):** when the USV's `mission_1` completes (finished or failed), the mission manager publishes `rx_msgs/Command` with `command_type = CMD_MISSION_DONE`, `target_vehicle = TYPE_UAV` and a local `command_seq` on `/system/mission/command`; the communication node relays it verbatim and the DDS Router routes it `usv → uav` (and `usv → gcs`). The GCS does **not** infer this from heartbeat `current_task` transitions.
 - **Subscribes** to `/system/vehicle/uav/task1/safe_passage` for mission planning.
 - `Docking.bay_id` = bay (1–3) of the safe (GREEN) bay; docking also signals readiness for tasking — the window light activates after the GCS forwards the report.
 - `Firefighting.window_id` = the window whose light changed RED → GREEN after the water delivery.

@@ -1,8 +1,8 @@
 # /system/vehicle/usv/task2/pipeline_buoys — team extension for Task 2, not relayed to RoboCommand
 # The two buoys at the ends of the Task 2 pipeline, as observed by the USV.
 # Published as soon as one buoy is found and on every estimate change, repeated
-# ~1 Hz (reliable, transient_local, depth 1) so the UUV receives the newest
-# positions on the surface, before it dives.
+# ~1 Hz (plain default QoS: reliable, volatile, keep_last 10) so a UUV that
+# joins late still receives the newest positions from the repeat, before it dives.
 std_msgs/Header header
 # stamp = time of the newest observation (UTC); leave zero if the clock is not synced
 # Course.course_id this observation belongs to
