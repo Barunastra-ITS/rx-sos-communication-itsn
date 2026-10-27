@@ -13,3 +13,5 @@ uint8 current_task
 uint8 vehicle_type
 # UAV only
 uint8 flight_phase
+# UAV only: CAAS registration number of this aircraft (may be empty with one UAV registered)
+string uav_registration

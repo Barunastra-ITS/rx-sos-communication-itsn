@@ -60,7 +60,7 @@ The GCS publishes course configuration and commands to the vehicles and collects
 | `/system/mission/command` | subscribe | `rx_msgs/Command`  |
 | `/system/mission/status` | publish   | `rx_msgs/MissionStatus` |
 
-- `Course` is published once before the run: `course_id`, `pinger_freq_hz` (UUV homing), the course boundary (closed polygon), and the `uav_geofence` (closed polygon within the boundary). It uses the plain default QoS (reliable, volatile, keep_last 10) like every other `/system/...` topic.
+- `Course` is published once before the run: `course_id`, `pinger_freq_hz` (UUV homing), the course boundary (closed polygon), the `uav_transit_area` (closed polygon beyond the boundary the UAV may also use for takeoff, landing and transit; empty = none), the `uav_geofence` (closed polygon within the boundary or the transit area) and its ceiling `uav_geofence_max_altitude_hae_m`. It uses the plain default QoS (reliable, volatile, keep_last 10) like every other `/system/...` topic.
 - `Command` targets a vehicle via `target_vehicle` (`TYPE_UNKNOWN` = all vehicles). `CMD_RUN_START` carries `run_id`. The GCS originates most orders; the USV also publishes `Command` itself (`CMD_MISSION_DONE`, see §4.2), so this topic flows in both directions through the DDS Router.
 - **Position-hold until the run start:** after switching to autonomous mode, no vehicle begins the run until `CMD_RUN_START` is received.
 
@@ -74,8 +74,10 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 | `depth_m`                                                                |  —  |  —  |  ✓  |
 | `current_task`, `vehicle_type`                                          |  ✓  |  ✓  |  ✓  |
 | `flight_phase`                                                           |  ✓  |  —  |  —  |
+| `uav_registration`                                                       |  ✓  |  —  |  —  |
 
 - `state` is `STATE_KILLED`, `STATE_MANUAL`, or `STATE_AUTO`; each autonomous and ready vehicle reports `STATE_AUTO` before the run starts.
+- `uav_registration` is the UAV's CAAS registration number; it may be left empty when the team has only one UAV registered.
 - `current_task` uses `RxTask` values (`TASK_SAFE_PASSAGE`, `TASK_INFRA_SURVEY_REPAIR`, `TASK_COORDINATED_LOGISTICS`, `TASK_DYNAMIC_INCIDENT`); `TASK_NONE` = no task in progress.
 
 ---
@@ -94,7 +96,7 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 
 - **Task 1 (UAV-only):** the UAV detects the buoy field and publishes `SafePassage` (entry, exit, all buoys) whenever a detection updates; the USV subscribes to it for mission planning. The handbook assigns the Task 1 report to the USV/UUV at Core tier and to the UAV at Advanced/Disruptive — the GCS attributes the report to the detecting vehicle, so align the declared tier with the detecting vehicle.
 - **Delivery echo:** when the UAV begins a delivery, it publishes `ResourceDelivery` echoing the `resource_color` and `delivery_circle_color` of the detecting vehicle's request (`task` = the delivery task).
-- Enforce the `uav_geofence` from `/system/mission/course`.
+- Enforce the `uav_geofence` and its ceiling `uav_geofence_max_altitude_hae_m` from `/system/mission/course`.
 - **Legacy bridge:** the existing UAV mission controller consumes the internal `/mission/order` topic with string commands (`UAV-GO`, `UAV-GO:RED:GREEN`, `MISSION-DONE`). The communication layer must translate `Command` messages (`CMD_GO`, `CMD_DELIVERY`, `CMD_MISSION_DONE`) into these strings and keep `/mission/order` inside the UAV domain.
 
 ### 4.2 USV
@@ -140,20 +142,20 @@ Commands arrive on `/system/mission/command`; responses are published on `/syste
 | ---------- | ----------------------------------------------------------------- |
 | Core       | assistance request → ack → readiness report → readiness confirm   |
 | Advanced   | keep-out zone → ack → all clear → ack                             |
-| Disruptive | moving object alert — keep ≥ 10 m from the object; no ack or clear |
+| Disruptive | moving object alert — keep beyond `radius_m` of the object; no ack or clear |
 
 Vehicle behavior:
 
 - `CMD_TASK4_ASSISTANCE` (`position`): publish `IncidentAck{command_seq}` on receipt, transit to the position, then publish `ReadinessReport{command_seq}` (same seq as the assistance command). On `CMD_TASK4_READINESS_CONFIRM` (matched by `report_seq` + vehicle), resume the previous mission.
 - `CMD_TASK4_KEEP_OUT_ZONE` (`center`, `radius_m`): publish `IncidentAck{command_seq}`, stay outside the zone. On `CMD_TASK4_ALL_CLEAR`: publish `IncidentAck{command_seq}` and resume.
-- `CMD_TASK4_MOVING_OBJECT` (`position`, `heading_deg`, `speed_mps`): treat the object as a dynamic external obstacle; no acknowledgement.
+- `CMD_TASK4_MOVING_OBJECT` (`position`, `heading_deg`, `speed_mps`, `radius_m`): treat the object as a dynamic external obstacle and stay beyond `radius_m` of it (RoboCommand's `keep_out_radius_m`, 5 m by default); no acknowledgement.
 
 ---
 
 ## 6. Pre-Run Sequence
 
 1. The GCS relays the course configuration to the vehicles as `/system/mission/course` (from the RoboCommand course config, with the team's UAV geofence).
-2. The GCS publishes the team's `RunDeclaration` to RoboCommand: all participating vehicle IDs, the tier per task (`TIER_NONE` when not attempting), and the closed UAV geofence.
+2. The GCS publishes the team's `RunDeclaration` to RoboCommand: all participating vehicle IDs, the tier per task (`TIER_NONE` when not attempting), the closed UAV geofence with its ceiling, and the UAV pilot's call sign.
 3. Vehicles publish heartbeats; each autonomous vehicle reports `STATE_AUTO`.
 4. The GCS relays the run start as `CMD_RUN_START` (after RoboCommand has accepted the declaration).
 5. Vehicles hold position until step 4, then begin the run.
@@ -180,6 +182,8 @@ rx_msgs/msg/Course
     uint32 pinger_freq_hz
     rx_msgs/LatLng[] boundary
     rx_msgs/LatLng[] uav_geofence
+    rx_msgs/LatLng[] uav_transit_area
+    float64 uav_geofence_max_altitude_hae_m
 
 rx_msgs/msg/Command
     std_msgs/Header header
@@ -189,7 +193,7 @@ rx_msgs/msg/Command
     uint32 run_id                  # CMD_RUN_START
     rx_msgs/LatLng position        # CMD_TASK4_ASSISTANCE / CMD_TASK4_MOVING_OBJECT
     rx_msgs/LatLng center          # CMD_TASK4_KEEP_OUT_ZONE
-    float32 radius_m               # CMD_TASK4_KEEP_OUT_ZONE
+    float32 radius_m               # CMD_TASK4_KEEP_OUT_ZONE / CMD_TASK4_MOVING_OBJECT
     float32 heading_deg            # CMD_TASK4_MOVING_OBJECT
     float32 speed_mps              # CMD_TASK4_MOVING_OBJECT
     uint32 report_seq              # CMD_TASK4_READINESS_CONFIRM
@@ -219,6 +223,7 @@ rx_msgs/msg/Heartbeat
     uint8 current_task             # RxTask constants
     uint8 vehicle_type             # VehicleType constants
     uint8 flight_phase             # FlightPhase constants, UAV only
+    string uav_registration        # CAAS registration number, UAV only
 
 rx_msgs/msg/BuoyDetection
     rx_msgs/LatLng position

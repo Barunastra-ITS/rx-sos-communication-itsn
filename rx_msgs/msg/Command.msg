@@ -11,6 +11,7 @@ uint32 run_id
 rx_msgs/LatLng position
 # CMD_TASK4_KEEP_OUT_ZONE
 rx_msgs/LatLng center
+# CMD_TASK4_KEEP_OUT_ZONE / CMD_TASK4_MOVING_OBJECT (keep-out radius around the object)
 float32 radius_m
 # CMD_TASK4_MOVING_OBJECT
 float32 heading_deg
