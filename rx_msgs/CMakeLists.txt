@@ -28,6 +28,7 @@ set(msgs
   msg/SafePassage.msg
   msg/TaskTier.msg
   msg/VehicleType.msg
+  msg/Waypoints.msg
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

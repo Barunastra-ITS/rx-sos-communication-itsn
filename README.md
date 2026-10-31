@@ -96,6 +96,7 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 
 - **Task 1 (UAV-only):** the UAV detects the buoy field and publishes `SafePassage` (entry, exit, all buoys) whenever a detection updates; the USV subscribes to it for mission planning. The handbook assigns the Task 1 report to the USV/UUV at Core tier and to the UAV at Advanced/Disruptive — the GCS attributes the report to the detecting vehicle, so align the declared tier with the detecting vehicle.
 - **Delivery echo:** when the UAV begins a delivery, it publishes `ResourceDelivery` echoing the `resource_color` and `delivery_circle_color` of the detecting vehicle's request (`task` = the delivery task).
+- **Subscribes** to `/system/vehicle/usv/waypoints` (`rx_msgs/Waypoints`) for the waypoints handed over by the USV. Ignore lists tagged with another `course_id`.
 - Enforce the `uav_geofence` and its ceiling `uav_geofence_max_altitude_hae_m` from `/system/mission/course`.
 - **Legacy bridge:** the existing UAV mission controller consumes the internal `/mission/order` topic with string commands (`UAV-GO`, `UAV-GO:RED:GREEN`, `MISSION-DONE`). The communication layer must translate `Command` messages (`CMD_GO`, `CMD_DELIVERY`, `CMD_MISSION_DONE`) into these strings and keep `/mission/order` inside the UAV domain.
 
@@ -103,6 +104,7 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 
 | Topic                                    | Type                   |
 | ---------------------------------------- | ---------------------- |
+| `/system/vehicle/usv/waypoints`          | `rx_msgs/Waypoints`    |
 | `/system/vehicle/usv/task2/pipeline_buoys` | `rx_msgs/PipelineBuoys` |
 | `/system/vehicle/usv/task3/docking`      | `rx_msgs/Docking`      |
 | `/system/vehicle/usv/task3/firefighting` | `rx_msgs/Firefighting` |
@@ -111,6 +113,7 @@ Publish `/system/vehicle/<vehicle>/heartbeat` (`rx_msgs/Heartbeat`) at 2 Hz whil
 | `/system/vehicle/usv/task4/readiness`    | `rx_msgs/ReadinessReport` |
 
 - **Task 2 buoy feed:** the USV is the only vehicle that publishes `PipelineBuoys`. Publish the first buoy as soon as it is found (`buoy_b_valid: false`), then again on every change, repeated about 1 Hz until the run ends, copied `course_id`, with the plain default QoS (reliable, volatile, keep_last 10 — the ~1 Hz repeat is what reaches a late-joining UUV). This is a team extension: it is not relayed to RoboCommand, but the GCS forwards it to the UUV domain.
+- **UAV waypoint feed:** the USV is the only vehicle that publishes `Waypoints` — an ordered list of positions (latitude/longitude only) for the UAV. Publish on every change (bump `seq`), repeated about 1 Hz until the run ends, copied `course_id`, with the plain default QoS (reliable, volatile, keep_last 10). This is a team extension: it is not relayed to RoboCommand; the DDS Router routes it `usv → uav` (and `usv → gcs`).
 - **Mission done (CMD_MISSION_DONE):** when the USV's `mission_1` completes (finished or failed), the mission manager publishes `rx_msgs/Command` with `command_type = CMD_MISSION_DONE`, `target_vehicle = TYPE_UAV` and a local `command_seq` on `/system/mission/command`; the communication node relays it verbatim and the DDS Router routes it `usv → uav` (and `usv → gcs`). The GCS does **not** infer this from heartbeat `current_task` transitions.
 - **Subscribes** to `/system/vehicle/uav/task1/safe_passage` for mission planning.
 - `Docking.bay_id` = bay (1–3) of the safe (GREEN) bay; docking also signals readiness for tasking — the window light activates after the GCS forwards the report.
@@ -250,6 +253,12 @@ rx_msgs/msg/PipelineBuoys          # team extension; USV publishes, UUV subscrib
     bool buoy_b_valid              # false while only one buoy has been found (in buoy_a)
     uint8 active_buoy              # ACTIVE_UNKNOWN / ACTIVE_A / ACTIVE_B
     float32 uncertainty_m          # horizontal position error, metres; 0 = unknown
+
+rx_msgs/msg/Waypoints             # team extension; USV publishes, UAV subscribes
+    std_msgs/Header header
+    string course_id               # Course.course_id this list belongs to
+    uint32 seq                     # increases whenever the content changes
+    rx_msgs/LatLng[] waypoints     # in visiting order (WGS-84, lat/lon only)
 
 rx_msgs/msg/ResourceDelivery
     std_msgs/Header header
